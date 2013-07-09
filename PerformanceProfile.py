@@ -39,6 +39,14 @@ class Profile(object):
             
     def getRange(self, st):
         return self.ranges.get(st)
+    
+    def __str__(self):
+        s = "[Profile: revision: " + str(self.revision) + ", test case: " + self.testCase \
+            + ", # runs: " + str(len(self.runs))
+        for r in self.ranges:
+            s += str(r) + "\n"
+        return s + "]"
+         
             
 class MonitoredStacktrace(object):
     '''
