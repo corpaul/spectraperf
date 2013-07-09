@@ -13,7 +13,7 @@ class Profile(object):
     '''
 
 
-    def __init__(self, rev = 0, tc = ""):
+    def __init__(self, rev=0, tc=""):
         '''
         Constructor
         '''
@@ -26,7 +26,7 @@ class Profile(object):
         
     def addSession(self, s):
         self.runs.append(s)
-        for st in s.stacktraces:    
+        for st in s.stacktraces:
             self.addToRange(st.stacktrace, st.rawBytes)
             
             
@@ -35,7 +35,7 @@ class Profile(object):
             self.ranges[st] = MonitoredStacktraceRange(st)
         r = self.ranges.get(st)
         r.addToRange(value)
-       
+        
             
     def getRange(self, st):
         return self.ranges.get(st)
@@ -43,7 +43,7 @@ class Profile(object):
     def __str__(self):
         s = "[Profile: revision: " + str(self.revision) + ", test case: " + self.testCase \
             + ", # runs: " + str(len(self.runs))
-        for r in self.ranges:
+        for r in self.ranges.itervalues():
             s += str(r) + "\n"
         return s + "]"
          
@@ -89,7 +89,10 @@ class MonitoredStacktraceRange(object):
             self.minValue = i
         if (self.maxValue == None) or (i > self.maxValue):
             self.maxValue = i
-
+            
+    def isInRange(self, value):
+        return value >= self.minValue and value <= self.maxValue
+    
     def __str__(self):
         return "[MonitoredStacktraceRange: (min: " + str(self.minValue) + ", max: " + str(self.maxValue) + ") " \
             + str(self.stacktrace) + "]"
@@ -106,7 +109,8 @@ class MonitoredSession(object):
         self.filename = filename
         self.stacktraces = []
         self.lookupDict = {}
-        #loadSession(file)
+        if filename != "":
+            self.loadSession()
 
     def __str__(self):
         result = "[MonitoredSession: " + self.name + ": "
@@ -118,15 +122,14 @@ class MonitoredSession(object):
     def loadSession(self):
         assert self.filename != ""
         # read CSV
-
-
         with open(self.filename, 'rb') as csvfile:
             reader = csv.DictReader(csvfile, delimiter=',')
             for line in reader:
                 st = line['TRACE']
                 b = Decimal(line['BYTES'])
-                perc = Decimal(line['PERC'])
-                record = MonitoredStacktrace(st, b, perc)
+                # perc = Decimal(line['PERC'])
+                # note: perc is unused at the moment
+                record = MonitoredStacktrace(st, b, 0)
                 self.stacktraces.append(record)
                 self.lookupDict[st] = record
                 
@@ -164,10 +167,10 @@ class MonitoredSession(object):
             print str(diff) + " (" + st + ")"  
             
             
-#session1 = MonitoredSession("Csv1", "csv/SummaryPerStacktrace_1.csv")
-#session2 = MonitoredSession("Csv2", "csv/SummaryPerStacktrace_2.csv")
-#session1.loadSession()
-#session2.loadSession()
+# session1 = MonitoredSession("Csv1", "csv/SummaryPerStacktrace_1.csv")
+# session2 = MonitoredSession("Csv2", "csv/SummaryPerStacktrace_2.csv")
+# session1.loadSession()
+# session2.loadSession()
 
-#session1.compareSessions(session2)
+# session1.compareSessions(session2)
          
