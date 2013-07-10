@@ -25,17 +25,28 @@ class Profile(object):
         self.ranges = {}
 
     def addSession(self, s):
+        '''
+        Add session s to the profile. Update ranges for all
+        stacktraces in s.
+        '''
         self.runs.append(s)
         for st in s.stacktraces:
             self.addToRange(st.stacktrace, st.rawBytes)
 
     def addToRange(self, st, value):
+        '''
+        Find the range for stacktrace st and add value to it,
+        i.e. extend the range if necessary.
+        '''
         if st not in self.ranges:
             self.ranges[st] = MonitoredStacktraceRange(st)
         r = self.ranges.get(st)
         r.addToRange(value)
 
     def isInRange(self, st, value):
+        '''
+        Returns true iff value is in the range of stacktrace st.
+        '''
         assert self.getRange(st) != None, "No range set for %s" % st
         return self.getRange(st).isInRange(value)
 
@@ -43,13 +54,34 @@ class Profile(object):
         return self.ranges.get(st)
 
     def fitsProfile(self, s):
+        '''
+        Returns a dict containing 1's and 0's representing whether
+        the value for that stacktrace is in the range of the stacktrace
+        in this profile.
+        '''
         fits = {}
         for st in s.stacktraces:
-            f = 1 if self.isInRange(st.stacktrace, st.rawBytes) else 0
+            f = 1 if self.getRange(st.stacktrace) != None and self.isInRange(st.stacktrace, st.rawBytes) else 0
             fits[st.stacktrace] = f
         return fits
 
+
     def similarity(self, v):
+        '''
+        Returns the (simplified) cosine similarity for fit vector v
+        and a vector with the same total number of items, all initialized to 1's.
+
+        The rationale behind this is that we want to see how different the fit vector
+        is compared to the profile (which is the fit vector with all 1's).
+
+        A similarity of 1 means all elements are equal, hence all elements of the new vector
+        fit in the ranges defined in the profile.
+
+        A similarity of 0 means all elements are different, hence no elements fit in the defined
+        ranges.
+
+        A value between 0 and 1 means the vectors are partly different.
+        '''
         d1 = sqrt(len(v))
         ones = 0
         for i in v.itervalues():
