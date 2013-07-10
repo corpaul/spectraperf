@@ -5,13 +5,13 @@ Created on Jul 4, 2013
 '''
 import csv
 from decimal import Decimal
-from scipy.stats import wilcoxon
+from math import sqrt
+
 
 class Profile(object):
     '''
     classdocs
     '''
-
 
     def __init__(self, rev=0, tc=""):
         '''
@@ -23,31 +23,53 @@ class Profile(object):
         self.runs = []
         # contains MonitoredStackRange objects
         self.ranges = {}
-        
+
     def addSession(self, s):
         self.runs.append(s)
         for st in s.stacktraces:
             self.addToRange(st.stacktrace, st.rawBytes)
-            
-            
+
     def addToRange(self, st, value):
         if st not in self.ranges:
             self.ranges[st] = MonitoredStacktraceRange(st)
         r = self.ranges.get(st)
         r.addToRange(value)
-        
-            
+
+    def isInRange(self, st, value):
+        assert self.getRange(st) != None, "No range set for %s" % st
+        return self.getRange(st).isInRange(value)
+
     def getRange(self, st):
         return self.ranges.get(st)
-    
+
+    def fitsProfile(self, s):
+        fits = {}
+        for st in s.stacktraces:
+            f = 1 if self.isInRange(st.stacktrace, st.rawBytes) else 0
+            fits[st.stacktrace] = f
+        return fits
+
+    def similarity(self, v):
+        d1 = sqrt(len(v))
+        ones = 0
+        for i in v.itervalues():
+            ones += i
+        d2 = sqrt(ones)
+        sim = ones / (d1*d2)
+        return sim
+
+
+
     def __str__(self):
-        s = "[Profile: revision: " + str(self.revision) + ", test case: " + self.testCase \
-            + ", # runs: " + str(len(self.runs))
+        s = "[Profile: revision: %d, test case: %s, # runs: %d" \
+            %(self.revision, self.testCase, len(self.runs))
+
         for r in self.ranges.itervalues():
-            s += str(r) + "\n"
-        return s + "]"
-         
-            
+            s += "%s\n" % r
+        return "%s]" % s
+
+
+
 class MonitoredStacktrace(object):
     '''
     classdocs
@@ -62,8 +84,8 @@ class MonitoredStacktrace(object):
         self.percentage = perc
 
     def __str__(self):
-        return "[MonitoredStacktrace: " + str(self.stacktrace) + ", rawBytes: " + str(self.rawBytes) + \
-            ", percentage:" + str(self.percentage) + "]"
+        return "[MonitoredStacktrace: %s, rawBytes: %d, percentage: %d]" \
+            %(self.stacktrace, self.rawBytes, self.percentage)
 
 
 class MonitoredStacktraceRange(object):
@@ -80,22 +102,22 @@ class MonitoredStacktraceRange(object):
         self.maxValue = None
        # self.mean = None
        # self.stdev = None
-            
+
     def addToRange(self, i):
         '''
         Add i to the range, extend the range if necessary.
-        '''    
+        '''
         if (self.minValue == None) or (i < self.minValue):
             self.minValue = i
         if (self.maxValue == None) or (i > self.maxValue):
             self.maxValue = i
-            
+
     def isInRange(self, value):
         return value >= self.minValue and value <= self.maxValue
-    
+
     def __str__(self):
-        return "[MonitoredStacktraceRange: (min: " + str(self.minValue) + ", max: " + str(self.maxValue) + ") " \
-            + str(self.stacktrace) + "]"
+        return "[MonitoredStacktraceRange: (min: %d, max: %d) %s]" \
+            %(self.minValue, self.maxValue, self.stacktrace)
 
 class MonitoredSession(object):
     '''
@@ -113,14 +135,13 @@ class MonitoredSession(object):
             self.loadSession()
 
     def __str__(self):
-        result = "[MonitoredSession: " + self.name + ": "
+        result = "[MonitoredSession: %s: " % self.name
         for st in self.stacktraces:
-            result += str(st) + "\n"
-        result += "]"
-        return result
+            result += "%s\n" % st
+        return "%s]" % result
 
     def loadSession(self):
-        assert self.filename != ""
+        assert self.filename != "", "Filename not set for session"
         # read CSV
         with open(self.filename, 'rb') as csvfile:
             reader = csv.DictReader(csvfile, delimiter=',')
@@ -132,11 +153,13 @@ class MonitoredSession(object):
                 record = MonitoredStacktrace(st, b, 0)
                 self.stacktraces.append(record)
                 self.lookupDict[st] = record
-                
+
     def addStacktrace(self, st):
         self.stacktraces.append(st)
 
 
+'''
+    unused, didn't make sense :)
     def compareSessions(self, s2):
         # get union of session entries and initialize to 0
         # note: we do not take thread id into account at the moment!!
@@ -145,9 +168,9 @@ class MonitoredSession(object):
         for st in self.stacktraces:
             compared[st.stacktrace] = {}
             compared[st.stacktrace]['s1'] = st.rawBytes
-            
-        print "size compared after s1: " + str(len(compared)) 
-        
+
+        print "size compared after s1: " + str(len(compared))
+
         for st in s2.stacktraces:
             if not st.stacktrace in compared:
                 compared[st.stacktrace] = {}
@@ -164,13 +187,13 @@ class MonitoredSession(object):
         # calculate difference
         for st in compared:
             diff = compared[st]['s2'] - compared[st]['s1']
-            print str(diff) + " (" + st + ")"  
-            
-            
+            print str(diff) + " (" + st + ")"
+'''
+
 # session1 = MonitoredSession("Csv1", "csv/SummaryPerStacktrace_1.csv")
 # session2 = MonitoredSession("Csv2", "csv/SummaryPerStacktrace_2.csv")
 # session1.loadSession()
 # session2.loadSession()
 
 # session1.compareSessions(session2)
-         
+
