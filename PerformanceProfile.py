@@ -6,6 +6,9 @@ Created on Jul 4, 2013
 import csv
 from decimal import Decimal
 from math import sqrt
+import sqlite3
+
+
 
 
 class Profile(object):
@@ -13,16 +16,20 @@ class Profile(object):
     classdocs
     '''
 
-    def __init__(self, rev=0, tc=""):
+    def __init__(self, rev, tc, DATABASE = "/home/corpaul/workspace/spectraperf/performance.db"):
         '''
         Constructor
         '''
         self.revision = rev
         self.testCase = tc
         # contains MonitoredSession objects
+        # sink? we will only use the ranges
         self.runs = []
         # contains MonitoredStackRange objects
         self.ranges = {}
+        self.databaseId = -1
+        self.DATABASE = DATABASE
+#        self.helper = ProfileHelper(DATABASE)
 
     def addSession(self, s):
         '''
@@ -39,7 +46,7 @@ class Profile(object):
         i.e. extend the range if necessary.
         '''
         if st not in self.ranges:
-            self.ranges[st] = MonitoredStacktraceRange(st)
+            self.ranges[st] = MonitoredStacktraceRange(st, self.DATABASE)
         r = self.ranges.get(st)
         r.addToRange(value)
 
@@ -90,15 +97,91 @@ class Profile(object):
         sim = ones / (d1*d2)
         return sim
 
-
-
     def __str__(self):
-        s = "[Profile: revision: %d, test case: %s, # runs: %d" \
+        s = "[Profile: revision: %s, test case: %s, # runs: %d" \
             %(self.revision, self.testCase, len(self.runs))
 
         for r in self.ranges.itervalues():
             s += "%s\n" % r
         return "%s]" % s
+
+class ProfileHelper(object):
+
+    def __init__(self, DATABASE = "/home/corpaul/workspace/spectraperf/performance.db"):
+        self.DATABASE = DATABASE
+        self.con = sqlite3.connect(self.DATABASE)
+        self.con.row_factory = sqlite3.Row
+
+
+    def getDatabaseId(self, p):
+        if p.databaseId != -1:
+            return p.databaseId
+
+        with self.con:
+            cur = self.con.cursor()
+            sqlCheck = "SELECT id FROM profile WHERE revision = '%s' AND testcase = '%s'" \
+                % (p.revision, p.testCase)
+            cur.execute(sqlCheck)
+            rows = cur.fetchall()
+            if len(rows) == 1:
+                self.databaseId = rows[0][0]
+                return rows[0][0]
+            else:
+                return -1
+
+    def storeInDatabase(self, p):
+        with self.con:
+            cur = self.con.cursor()
+
+            if p.databaseId == -1:
+                # insert profile
+                sqlProfile = "INSERT INTO profile (revision, testcase) VALUES ('%s', '%s')" \
+                    % (p.revision, p.testCase)
+                cur.execute(sqlProfile)
+                p.databaseId = cur.lastrowid
+
+            # insert ranges
+            for st in p.ranges.itervalues():
+                if st.getDatabaseId() == -1:
+                    sqlStacktrace = "INSERT INTO stacktrace (stacktrace) VALUES ('%s')" \
+                        % (st.stacktrace)
+                    cur.execute(sqlStacktrace)
+                    st.databaseId = cur.lastrowid
+
+                sqlRange = "INSERT INTO range (stacktrace_id, min_value, max_value, profile_id, type_id) VALUES \
+                    (%d, %d, %d, %d, %d) " \
+                    % (st.databaseId, st.minValue, st.maxValue, p.databaseId, 1)
+                cur.execute(sqlRange)
+
+            self.con.commit()
+
+    def loadFromDatabase(self, rev, tc):
+        with self.con:
+            cur = self.con.cursor()
+            sql = "SELECT id FROM profile WHERE revision = '%s' AND testcase = '%s'" \
+                % ( rev, tc )
+            cur.execute(sql)
+            rows = cur.fetchall()
+            assert len(rows) > 0, "profile does not exist"
+
+            p = Profile(rev, tc)
+            p.databaseId = rows[0]['id']
+            print p
+
+            # TODO: read ranges
+
+            # TODO: add ID to stackranges etc?
+
+
+
+
+
+
+
+#
+           #         JOIN range ON range.profile_id = profile.id \
+          #          JOIN stacktrace ON stacktrace.id = range.stacktrace_id \
+          #          JOIN type ON type_id = range.type_id"
 
 
 
@@ -125,13 +208,15 @@ class MonitoredStacktraceRange(object):
     classdocs
     '''
 
-    def __init__(self, st):
+    def __init__(self, st, DATABASE = "/home/corpaul/workspace/spectraperf/performance.db"):
         '''
         Constructor
         '''
         self.stacktrace = st
         self.minValue = None
         self.maxValue = None
+        self.databaseId = -1
+        self.DATABASE = DATABASE
        # self.mean = None
        # self.stdev = None
 
@@ -150,6 +235,22 @@ class MonitoredStacktraceRange(object):
     def __str__(self):
         return "[MonitoredStacktraceRange: (min: %d, max: %d) %s]" \
             %(self.minValue, self.maxValue, self.stacktrace)
+
+    def getDatabaseId(self):
+        if self.databaseId != -1:
+            return self.databaseId
+
+        self.con = sqlite3.connect(self.DATABASE)
+        with self.con:
+            cur = self.con.cursor()
+            sqlCheck = "SELECT id FROM stacktrace WHERE stacktrace = '%s'" \
+                % self.stacktrace
+            cur.execute(sqlCheck)
+            rows = cur.fetchall()
+            if len(rows) == 1:
+                return rows[0][0]
+            else:
+                return -1
 
 class MonitoredSession(object):
     '''

@@ -5,13 +5,13 @@ Created on Jul 4, 2013
 '''
 import unittest
 from PerformanceProfile import *
+import DatabaseHelper
+
+DATABASE = "/home/corpaul/workspace/spectraperf/performance_test.db"
+
+class TestPerformanceFunctions(unittest.TestCase):
 
 
-class Test(unittest.TestCase):
-
-
-    def testName(self):
-        pass
 
     def testAddToRange(self):
         s = MonitoredStacktrace("test", 10, 25)
@@ -19,7 +19,7 @@ class Test(unittest.TestCase):
         sess = MonitoredSession()
         sess.addStacktrace(s)
 
-        p = Profile()
+        p = Profile("24435a", "test_batch")
         p.addSession(sess)
 
         self.assertEqual(p.getRange("test").minValue, 10)
@@ -47,7 +47,7 @@ class Test(unittest.TestCase):
         sess2 = MonitoredSession()
         sess2.addStacktrace(st2)
 
-        p = Profile()
+        p = Profile("24435a", "test_batch")
         p.addSession(sess1)
         p.addSession(sess2)
 
@@ -67,7 +67,7 @@ class Test(unittest.TestCase):
 
 
 
-        p = Profile()
+        p = Profile("24435a", "test_batch")
         p.addToRange("test1", 10)
         p.addToRange("test1", 20)
 
@@ -92,7 +92,7 @@ class Test(unittest.TestCase):
         self.assertEqual(fits["test1"], 1)
         self.assertEqual(fits["test2"], 0)
 
-        p2 = Profile()
+        p2 = Profile("24435a", "test_batch")
         p2.addToRange("test2", 10)
         p2.addToRange("test2", 20)
         sess2 = MonitoredSession()
@@ -103,9 +103,38 @@ class Test(unittest.TestCase):
     def testSimilarity(self):
         v1 = {"test1" : 1, "test2" : 1, "test3" : 1, "test4" : 1, "test5" : 0}
         v2 = {"test1" : 1, "test2" : 1, "test3" : 1, "test4" : 1, "test5" : 1}
-        p = Profile()
+        p = Profile("24435a", "test_batch")
         self.assertAlmostEqual(p.similarity(v2), 1)
         self.assertAlmostEqual(p.similarity(v1), 0.894427191)
+
+    def testProfileHelper(self):
+        # reset database before testing
+        i = DatabaseHelper.InitDatabase(DATABASE)
+
+        s1 = MonitoredStacktrace("test1", 10, 25)
+        s2 = MonitoredStacktrace("test2", 25, 25)
+
+        sess1 = MonitoredSession()
+        sess1.addStacktrace(s1)
+        sess1.addStacktrace(s2)
+
+        p = Profile("24435a", "test_batch", DATABASE)
+
+        h = ProfileHelper(DATABASE)
+
+        # empty profile
+        self.assertEqual(h.getDatabaseId(p), -1)
+        h.storeInDatabase(p)
+
+        self.assertNotEqual(h.getDatabaseId(p), -1)
+
+        p.addSession(sess1)
+        h.storeInDatabase(p)
+
+        h.loadFromDatabase("24435a", "test_batch")
+
+
+
 
 
 if __name__ == "__main__":
