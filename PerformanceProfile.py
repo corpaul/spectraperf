@@ -37,7 +37,7 @@ class Profile(object):
         stacktraces in s.
         '''
         self.runs.append(s)
-        for st in s.stacktraces:
+        for st in s.stacktraces.itervalues():
             self.addToRange(st.stacktrace, st.rawBytes)
 
     def addToRange(self, st, value):
@@ -59,7 +59,7 @@ class Profile(object):
 
     def getRange(self, st):
         return self.ranges.get(st)
-
+    
     def fitsProfile(self, s):
         '''
         Returns a dict containing 1's and 0's representing whether
@@ -67,7 +67,7 @@ class Profile(object):
         in this profile.
         '''
         fits = {}
-        for st in s.stacktraces:
+        for st in s.stacktraces.itervalues():
             f = 1 if self.getRange(st.stacktrace) != None and self.isInRange(st.stacktrace, st.rawBytes) else 0
             fits[st.stacktrace] = f
         return fits
@@ -96,7 +96,13 @@ class Profile(object):
         d2 = sqrt(ones)
         sim = ones / (d1*d2)
         return sim
-
+    
+    def addRange(self, range):
+        if range.stacktrace in self.ranges:
+            self.addToRange(range.stacktrace, range.minValue)
+            self.addToRange(range.stacktrace, range.maxValue)            
+        self.ranges[range.stacktrace] = range
+        
     def __str__(self):
         s = "[Profile: revision: %s, test case: %s, # runs: %d" \
             %(self.revision, self.testCase, len(self.runs))
@@ -135,7 +141,7 @@ class ProfileHelper(object):
 
             if p.databaseId == -1:
                 # insert profile
-                sqlProfile = "INSERT INTO profile (revision, testcase) VALUES ('%s', '%s')" \
+                sqlProfile = "INSERT OR REPLACE INTO profile (revision, testcase) VALUES ('%s', '%s')" \
                     % (p.revision, p.testCase)
                 cur.execute(sqlProfile)
                 p.databaseId = cur.lastrowid
@@ -143,12 +149,12 @@ class ProfileHelper(object):
             # insert ranges
             for st in p.ranges.itervalues():
                 if st.getDatabaseId() == -1:
-                    sqlStacktrace = "INSERT INTO stacktrace (stacktrace) VALUES ('%s')" \
+                    sqlStacktrace = "INSERT OR REPLACE INTO stacktrace (stacktrace) VALUES ('%s')" \
                         % (st.stacktrace)
                     cur.execute(sqlStacktrace)
                     st.databaseId = cur.lastrowid
 
-                sqlRange = "INSERT INTO range (stacktrace_id, min_value, max_value, profile_id, type_id) VALUES \
+                sqlRange = "INSERT OR REPLACE INTO range (stacktrace_id, min_value, max_value, profile_id, type_id) VALUES \
                     (%d, %d, %d, %d, %d) " \
                     % (st.databaseId, st.minValue, st.maxValue, p.databaseId, 1)
                 cur.execute(sqlRange)
@@ -166,22 +172,26 @@ class ProfileHelper(object):
 
             p = Profile(rev, tc)
             p.databaseId = rows[0]['id']
-            print p
 
             # TODO: read ranges
-
+            sql = "select * from range JOIN stacktrace ON stacktrace.id = range.stacktrace_id where profile_id = '%d'" % p.databaseId
+            cur.execute(sql)
+            rows = cur.fetchall()
+            for r in rows:
+                st = r['stacktrace']
+                min_value = r['min_value']
+                max_value = r['max_value']
+                dbId = r['id']
+                
+                range = MonitoredStacktraceRange(st)
+                range.addToRange(min_value)
+                range.addToRange(max_value)
+                range.databaseId = dbId
+                p.addRange(range)
             # TODO: add ID to stackranges etc?
 
+            return p
 
-
-
-
-
-
-#
-           #         JOIN range ON range.profile_id = profile.id \
-          #          JOIN stacktrace ON stacktrace.id = range.stacktrace_id \
-          #          JOIN type ON type_id = range.type_id"
 
 
 
@@ -197,6 +207,7 @@ class MonitoredStacktrace(object):
         self.stacktrace = st
         self.rawBytes = raw
         self.percentage = perc
+        self.databaseId = -1
 
     def __str__(self):
         return "[MonitoredStacktrace: %s, rawBytes: %d, percentage: %d]" \
@@ -256,39 +267,27 @@ class MonitoredSession(object):
     '''
     classdocs
     '''
-    def __init__(self, name="", filename=""):
+    def __init__(self, rev, tc):
         '''
         Constructor
         '''
-        self.name = name
-        self.filename = filename
-        self.stacktraces = []
-        self.lookupDict = {}
-        if filename != "":
-            self.loadSession()
+        self.revision = rev
+        self.testCase = tc
+        self.stacktraces = {}
+        self.databaseId = -1
+        #self.lookupDict = {}
+        #if filename != "":
+        #    self.loadSession()
 
     def __str__(self):
-        result = "[MonitoredSession: %s: " % self.name
+        result = "[MonitoredSession: revision %s, test case %s " % (self.revision, self.testCase)
         for st in self.stacktraces:
             result += "%s\n" % st
         return "%s]" % result
 
-    def loadSession(self):
-        assert self.filename != "", "Filename not set for session"
-        # read CSV
-        with open(self.filename, 'rb') as csvfile:
-            reader = csv.DictReader(csvfile, delimiter=',')
-            for line in reader:
-                st = line['TRACE']
-                b = Decimal(line['BYTES'])
-                # perc = Decimal(line['PERC'])
-                # note: perc is unused at the moment
-                record = MonitoredStacktrace(st, b, 0)
-                self.stacktraces.append(record)
-                self.lookupDict[st] = record
-
+   
     def addStacktrace(self, st):
-        self.stacktraces.append(st)
+        self.stacktraces[st.stacktrace] = st 
 
 
 '''
@@ -323,10 +322,87 @@ class MonitoredSession(object):
             print str(diff) + " (" + st + ")"
 '''
 
-# session1 = MonitoredSession("Csv1", "csv/SummaryPerStacktrace_1.csv")
-# session2 = MonitoredSession("Csv2", "csv/SummaryPerStacktrace_2.csv")
-# session1.loadSession()
-# session2.loadSession()
 
-# session1.compareSessions(session2)
+class SessionHelper(object):
+    def __init__(self, DATABASE = "/home/corpaul/workspace/spectraperf/performance.db"):
+        self.DATABASE = DATABASE
+        self.con = sqlite3.connect(self.DATABASE)
+        self.con.row_factory = sqlite3.Row
+    
+    def loadSessionFromCSV(self, rev, tc, filename=""):
+        assert filename != "", "Filename not set for session"
+        s = MonitoredSession(rev, tc)
+        # read CSV
+        with open(filename, 'rb') as csvfile:
+            reader = csv.DictReader(csvfile, delimiter=',')
+            for line in reader:
+                st = line['TRACE'].strip()
+                b = Decimal(line['BYTES'])
+                # perc = Decimal(line['PERC'])
+                # note: perc is unused at the moment
+                record = MonitoredStacktrace(st, b, 0)
+                s.stacktraces[st] = record
+                
+        return s
 
+
+    def storeInDatabase(self, s):
+        '''
+        Sessions are immutable, so only store in the database if it does not have a databaseId yet.
+        '''
+        with self.con:
+            cur = self.con.cursor()
+
+            if s.databaseId == -1:
+                # insert profile
+                sqlProfile = "INSERT OR REPLACE INTO run (revision, testcase) VALUES ('%s', '%s')" \
+                    % (s.revision, s.testCase)
+                cur.execute(sqlProfile)
+                s.databaseId = cur.lastrowid
+
+            # insert ranges
+            for st in s.stacktraces.itervalues():
+                if st.databaseId == -1:
+                    sqlStacktrace = "INSERT OR REPLACE INTO stacktrace (stacktrace) VALUES ('%s')" \
+                        % (st.stacktrace)
+                    cur.execute(sqlStacktrace)
+                    st.databaseId = cur.lastrowid
+
+                sqlRange = "INSERT OR REPLACE INTO monitored_value (stacktrace_id, run_id, type_id, value) VALUES \
+                    (%d, %d, %d, %d) " \
+                    % (st.databaseId, s.databaseId, 1, st.rawBytes)
+                cur.execute(sqlRange)
+
+            self.con.commit()
+
+    def loadFromDatabase(self, rev, tc):
+        '''
+        Note: returns array of MonitoredSession objects, because we may have multiple sessions
+        for the same revision and test case (in contrast to a profile, of which we have only one.
+        '''
+        with self.con:
+            cur = self.con.cursor()
+            sql = "SELECT id FROM run WHERE revision = '%s' AND testcase = '%s'" \
+                % ( rev, tc )
+            cur.execute(sql)
+            rows = cur.fetchall()
+            assert len(rows) > 0, "run does not exist"
+            sessions = []
+            for r1 in rows:
+                
+                m = MonitoredSession(rev, tc)
+                m.databaseId = r1['id']
+    
+                sql = "select * from monitored_value JOIN stacktrace ON stacktrace.id = monitored_value.stacktrace_id where run_id = '%d'" % m.databaseId
+                cur.execute(sql)
+                rows = cur.fetchall()
+                for r2 in rows:
+                    st = r2['stacktrace']
+                    value = r2['value']
+                    dbId = r2['id']
+                    s = MonitoredStacktrace(st, value, 0)
+                    m.stacktraces[st] = s                 
+                        
+                sessions.append(m)
+            
+            return sessions
