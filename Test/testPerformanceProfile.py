@@ -16,10 +16,10 @@ class TestPerformanceFunctions(unittest.TestCase):
     def testAddToRange(self):
         s = MonitoredStacktrace("test", 10, 25)
 
-        sess = MonitoredSession()
+        sess = MonitoredSession("rev1", "test_batch")
         sess.addStacktrace(s)
 
-        p = Profile("24435a", "test_batch")
+        p = Profile("rev1", "test_batch")
         p.addSession(sess)
 
         self.assertEqual(p.getRange("test").minValue, 10)
@@ -42,12 +42,12 @@ class TestPerformanceFunctions(unittest.TestCase):
         st2 = MonitoredStacktrace("test", 20, 25)
 
 
-        sess1 = MonitoredSession()
+        sess1 = MonitoredSession("rev1", "test_batch")
         sess1.addStacktrace(st1)
-        sess2 = MonitoredSession()
+        sess2 = MonitoredSession("rev1", "test_batch")
         sess2.addStacktrace(st2)
 
-        p = Profile("24435a", "test_batch")
+        p = Profile("rev1", "test_batch")
         p.addSession(sess1)
         p.addSession(sess2)
 
@@ -62,12 +62,12 @@ class TestPerformanceFunctions(unittest.TestCase):
         s1 = MonitoredStacktrace("test1", 10, 25)
         s2 = MonitoredStacktrace("test2", 25, 25)
 
-        sess1 = MonitoredSession()
+        sess1 = MonitoredSession("rev1", "test_batch")
         sess1.addStacktrace(s1)
 
 
 
-        p = Profile("24435a", "test_batch")
+        p = Profile("rev1", "test_batch")
         p.addToRange("test1", 10)
         p.addToRange("test1", 20)
 
@@ -92,10 +92,10 @@ class TestPerformanceFunctions(unittest.TestCase):
         self.assertEqual(fits["test1"], 1)
         self.assertEqual(fits["test2"], 0)
 
-        p2 = Profile("24435a", "test_batch")
+        p2 = Profile("rev1", "test_batch")
         p2.addToRange("test2", 10)
         p2.addToRange("test2", 20)
-        sess2 = MonitoredSession()
+        sess2 = MonitoredSession("rev1", "test_batch")
         sess2.addStacktrace(s2)
         fits = p2.fitsProfile(sess2)
         self.assertEqual(fits["test2"], 0)
@@ -114,28 +114,65 @@ class TestPerformanceFunctions(unittest.TestCase):
         s1 = MonitoredStacktrace("test1", 10, 25)
         s2 = MonitoredStacktrace("test2", 25, 25)
 
-        sess1 = MonitoredSession()
+        sess1 = MonitoredSession("rev1", "test_batch")
         sess1.addStacktrace(s1)
         sess1.addStacktrace(s2)
+        
+        p = Profile("rev1", "test_batch", DATABASE)
 
-        p = Profile("24435a", "test_batch", DATABASE)
+        # add a max value for the range
+        p.addToRange("test1", 10)
+        p.addToRange("test1", 20)
+        p.addToRange("test2", 10)
+        p.addToRange("test2", 20)
 
         h = ProfileHelper(DATABASE)
 
         # empty profile
         self.assertEqual(h.getDatabaseId(p), -1)
+        #print p
         h.storeInDatabase(p)
 
         self.assertNotEqual(h.getDatabaseId(p), -1)
 
         p.addSession(sess1)
+        #print p
+        
         h.storeInDatabase(p)
 
-        h.loadFromDatabase("24435a", "test_batch")
+        # load p from the database
 
+        p = h.loadFromDatabase("rev1", "test_batch")
+        #print p        
+        self.assertTrue(p.getRange("test1").isInRange(15))
+        self.assertTrue(p.getRange("test1").isInRange(10))
+        self.assertFalse(p.getRange("test1").isInRange(9))
+        self.assertFalse(p.getRange("test1").isInRange(21)) 
 
+    def testSessionHelper(self):
+        helper = SessionHelper(DATABASE)
+        sess1 = helper.loadSessionFromCSV("rev1", "test_batch", "../csv/test_session1.csv")
+        sess2 = helper.loadSessionFromCSV("rev1", "test_batch", "../csv/test_session2.csv")
+        #print sess1
+        #print sess2
+        
+        p = Profile("rev1", "test_batch")
+        p.addSession(sess1)
+        p.addSession(sess2)
+        #print p
+        self.assertTrue(p.getRange("test1").isInRange(15))
+        self.assertTrue(p.getRange("test1").isInRange(10))
+        self.assertFalse(p.getRange("test1").isInRange(9))
+        self.assertFalse(p.getRange("test1").isInRange(21)) 
 
-
+        helper.storeInDatabase(sess1)
+        helper.storeInDatabase(sess2)
+        
+        sess3 = helper.loadFromDatabase("rev1", "test_batch")
+        self.assertEqual(len(sess3), 2)
+        
+        
+        
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

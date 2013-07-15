@@ -36,3 +36,6 @@ nosetests.xml
 
 # test stuff
 Test/TestMain.py
+
+# sqlite db
+*.db
